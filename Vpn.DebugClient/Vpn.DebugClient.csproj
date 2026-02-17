@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <AssemblyName>Coder.Desktop.Vpn.DebugClient</AssemblyName>
+        <RootNamespace>Coder.Desktop.Vpn.DebugClient</RootNamespace>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Vpn\Vpn.csproj" />
+        <ProjectReference Include="..\Vpn.Proto\Vpn.Proto.csproj" />
+    </ItemGroup>
+
+</Project>
