@@ -1,63 +1,62 @@
 # Linux Packaging
 
-## Debian package (`.deb`)
+## Build release artifacts locally
+
+From repo root:
 
 ```bash
-# Build .deb for amd64
-./build-deb.sh amd64
+# Build .deb, .rpm, and .tar.gz for amd64
+VERSION=1.0.0 ./Packaging.Linux/build-release-packages.sh amd64
 
-# Build .deb for arm64
-VERSION=1.0.0 ./build-deb.sh arm64
+# Build .deb, .rpm, and .tar.gz for arm64
+VERSION=1.0.0 ./Packaging.Linux/build-release-packages.sh arm64
+
+# Build only one format
+VERSION=1.0.0 FORMATS=deb ./Packaging.Linux/build-release-packages.sh amd64
 ```
 
-The output package is written to the repository root as:
+Artifacts are written to `./dist/` by default.
+
+Generated formats:
 
 - `coder-desktop_<version>_amd64.deb`
 - `coder-desktop_<version>_arm64.deb`
+- `coder-desktop-<version>-1.x86_64.rpm`
+- `coder-desktop-<version>-1.aarch64.rpm`
+- `coder-desktop_<version>_amd64.tar.gz`
+- `coder-desktop_<version>_arm64.tar.gz`
 
-## Arch / Manjaro package (`PKGBUILD`)
-
-A sample `PKGBUILD` and `coder-desktop.install` are provided for Arch-based
-systems.
-
-```bash
-cd Packaging.Linux
-makepkg -si
-```
-
-## Local development run helper
-
-From repo root, use:
+## Build AUR source bundle
 
 ```bash
-./scripts/run-linux-dev.sh
+VERSION=1.0.0 ./Packaging.Linux/build-aur-source.sh
 ```
 
-This script:
+Produces:
 
-- builds `Vpn.Service` + `App.Avalonia` (unless `--no-build`)
-- starts the service on a user-writable socket
-- overrides `Manager:TunnelBinaryPath` to:
-  - `${XDG_CACHE_HOME:-$HOME/.cache}/coder-desktop-dev/coder-vpn` (default)
-  - `/tmp/coder-desktop-dev-root/coder-vpn` when `--sudo-service` is used
-- sets `Manager:TunnelBinaryAllowVersionMismatch=true` for Linux dev runs because
-  Windows PE ProductVersion validation does not apply to Linux tunnel binaries
-- can run the service via `--sudo-service` (recommended when testing real tunnel setup,
-  since creating/configuring TUN interfaces typically requires root privileges)
-- starts the Avalonia app in visible mode (`--show` by default)
-- writes logs under `${XDG_RUNTIME_DIR:-/tmp}/coder-desktop-dev/logs/`
+- `coder-desktop_<version>_aur.tar.gz`
 
-Useful variants:
+This archive contains `PKGBUILD`, `coder-desktop.install`, unit/desktop files,
+and can be used as a source bundle for AUR packaging.
+
+## Debian helper
+
+`build-deb.sh` is retained as a convenience wrapper:
 
 ```bash
-./scripts/run-linux-dev.sh --no-build
-./scripts/run-linux-dev.sh -- --minimized
-./scripts/run-linux-dev.sh --sudo-service
+VERSION=1.0.0 ./Packaging.Linux/build-deb.sh amd64
 ```
 
-The app also writes bootstrap logs to:
+## Service behavior (root VPN service)
 
-- `~/.local/state/coder-desktop/app-avalonia.log`
+Packages install a systemd unit (`coder-desktop.service`) that runs:
+
+- `User=root`
+- `ExecStart=/usr/bin/coder-vpn-service`
+
+Post-install scripts run `systemctl daemon-reload`, `enable`, and `start/restart`
+so the VPN service is active as root after installation (when systemd is
+available).
 
 ## Package contents
 
@@ -65,23 +64,7 @@ The app also writes bootstrap logs to:
 - `/usr/lib/coder-desktop/service/` — VPN service binaries
 - `/usr/bin/coder-desktop` — Desktop app launcher wrapper
 - `/usr/bin/coder-vpn-service` — Symlink to VPN service binary
-- `/etc/systemd/system/coder-desktop.service` — systemd unit
+- `/usr/lib/systemd/system/coder-desktop.service` — systemd unit
 - `/etc/coder-desktop/config.json` — Default configuration
 - `/usr/share/applications/coder-desktop.desktop` — Desktop entry
 - `/usr/share/pixmaps/coder-desktop.ico` — App icon
-
-## Runtime dependencies
-
-### Debian/Ubuntu package names
-
-- `dotnet-runtime-8.0`
-- `libnotify-bin`
-- `libsecret-tools`
-- `freerdp2-x11` or `remmina` (optional)
-
-### Arch/Manjaro package names
-
-- `dotnet-runtime-8.0`
-- `libnotify`
-- `libsecret`
-- `freerdp` or `remmina` (optional)

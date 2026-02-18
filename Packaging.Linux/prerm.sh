@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-# Stop and disable the service
-systemctl stop coder-desktop.service || true
-systemctl disable coder-desktop.service || true
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop coder-desktop.service || true
+    systemctl disable coder-desktop.service || true
+fi

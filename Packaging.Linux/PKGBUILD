@@ -42,7 +42,7 @@ package() {
   install -d "${pkgdir}/usr/bin"
   install -d "${pkgdir}/usr/share/applications"
   install -d "${pkgdir}/usr/share/pixmaps"
-  install -d "${pkgdir}/etc/systemd/system"
+  install -d "${pkgdir}/usr/lib/systemd/system"
   install -d "${pkgdir}/etc/coder-desktop"
 
   cp -a "${srcdir}/build/app/." "${pkgdir}/usr/lib/coder-desktop/app/"
@@ -57,7 +57,7 @@ WRAPPER
   ln -sf "/usr/lib/coder-desktop/service/CoderVpnService" "${pkgdir}/usr/bin/coder-vpn-service"
 
   install -m 644 "${srcdir}/coder-desktop.desktop" "${pkgdir}/usr/share/applications/coder-desktop.desktop"
-  install -m 644 "${srcdir}/coder-desktop.service" "${pkgdir}/etc/systemd/system/coder-desktop.service"
+  install -m 644 "${srcdir}/coder-desktop.service" "${pkgdir}/usr/lib/systemd/system/coder-desktop.service"
   install -m 644 "${repo_root}/App.Avalonia/Assets/coder.ico" "${pkgdir}/usr/share/pixmaps/coder-desktop.ico"
 
   cat > "${pkgdir}/etc/coder-desktop/config.json" <<'CONFIG'
