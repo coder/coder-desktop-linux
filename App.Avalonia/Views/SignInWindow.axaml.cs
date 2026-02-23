@@ -76,12 +76,11 @@ public partial class SignInWindow : Window
 
         var page = _vm.Stage switch
         {
-            SignInStage.Url => (Control)new SignInUrlPage(),
-            SignInStage.Token => new SignInTokenPage(),
-            _ => new SignInUrlPage(),
+            SignInStage.Url => (Control)new SignInUrlPage(_vm),
+            SignInStage.Token => new SignInTokenPage(_vm),
+            _ => new SignInUrlPage(_vm),
         };
 
-        page.DataContext = _vm;
         _stageHost.Content = page;
     }
 }
