@@ -26,7 +26,7 @@
                     <TextBlock Text="Start on login"
                                FontWeight="SemiBold" />
                     <TextBlock TextWrapping="Wrap"
-                               Text="This setting controls whether the Coder Desktop app starts on Windows startup." />
+                               Text="This setting controls whether the Coder Desktop app starts when you sign in." />
                     <ToggleSwitch IsChecked="{CompiledBinding StartOnLogin, Mode=TwoWay}"
                                   IsEnabled="{CompiledBinding StartOnLoginDisabled, Converter={StaticResource InverseBoolConverter}}" />
                 </StackPanel>

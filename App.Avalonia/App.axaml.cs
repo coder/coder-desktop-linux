@@ -147,12 +147,16 @@ public partial class App : Application
 
         var credentialManager = _services.GetRequiredService<ICredentialManager>();
         var rpcController = _services.GetRequiredService<IRpcController>();
+        var settingsManager = _services.GetRequiredService<ISettingsManager<CoderConnectSettings>>();
 
         AppBootstrapLogger.Info("Initializing credentials and RPC connection...");
 
-        using var credentialLoadCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var appStopping = _hostApplicationLifetime?.ApplicationStopping ?? CancellationToken.None;
+        using var credentialLoadCts = CancellationTokenSource.CreateLinkedTokenSource(appStopping);
+        credentialLoadCts.CancelAfter(TimeSpan.FromSeconds(15));
+
         var loadCredentialsTask = credentialManager.LoadCredentials(credentialLoadCts.Token);
-        var reconnectTask = rpcController.Reconnect();
+        var reconnectTask = ReconnectWithStartupRetryAsync(rpcController, appStopping);
 
         try
         {
@@ -164,11 +168,91 @@ public partial class App : Application
             if (loadCredentialsTask.IsFaulted)
                 AppBootstrapLogger.Error("Credential initialization failed", loadCredentialsTask.Exception?.GetBaseException());
 
+            // reconnectTask logs its own errors internally; just note if it threw here
             if (reconnectTask.IsFaulted)
-                AppBootstrapLogger.Error("RPC reconnect failed", reconnectTask.Exception?.GetBaseException());
-            else if (reconnectTask.IsCanceled)
-                AppBootstrapLogger.Warn("RPC reconnect canceled");
+                AppBootstrapLogger.Error("Startup reconnect failed unexpectedly", reconnectTask.Exception?.GetBaseException());
         }
+
+        var reconnectSucceeded = reconnectTask is { IsCompletedSuccessfully: true, Result: true };
+
+        if (!reconnectSucceeded)
+            AppBootstrapLogger.Warn("Startup continuing in disconnected state after retry exhaustion");
+
+        try
+        {
+            await MaybeAutoStartVpnOnLaunchAsync(settingsManager, credentialManager, rpcController, reconnectSucceeded, appStopping);
+        }
+        catch (Exception ex)
+        {
+            AppBootstrapLogger.Error("ConnectOnLaunch failed", ex);
+        }
+    }
+
+    private async Task<bool> ReconnectWithStartupRetryAsync(IRpcController rpcController, CancellationToken ct)
+    {
+        TimeSpan[] delays =
+        [
+            TimeSpan.Zero,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(4),
+            TimeSpan.FromSeconds(8),
+        ];
+
+        Exception? lastError = null;
+
+        for (var attempt = 0; attempt < delays.Length; attempt++)
+        {
+            if (attempt > 0)
+                await Task.Delay(delays[attempt], ct);
+
+            try
+            {
+                await rpcController.Reconnect(ct);
+                AppBootstrapLogger.Info($"RPC reconnect succeeded on attempt {attempt + 1}/{delays.Length}");
+                return true;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                lastError = ex;
+                AppBootstrapLogger.Warn($"RPC reconnect attempt {attempt + 1}/{delays.Length} failed: {ex.Message}");
+            }
+        }
+
+        AppBootstrapLogger.Error("RPC reconnect exhausted startup retries", lastError);
+        return false;
+    }
+
+    private async Task MaybeAutoStartVpnOnLaunchAsync(
+        ISettingsManager<CoderConnectSettings> settingsManager,
+        ICredentialManager credentialManager,
+        IRpcController rpcController,
+        bool reconnectSucceeded,
+        CancellationToken ct)
+    {
+        var settings = await settingsManager.Read(ct);
+        if (!settings.ConnectOnLaunch)
+            return;
+
+        if (!reconnectSucceeded)
+        {
+            AppBootstrapLogger.Info("ConnectOnLaunch skipped because startup reconnect did not succeed");
+            return;
+        }
+
+        var creds = credentialManager.GetCachedCredentials();
+        var rpc = rpcController.GetState();
+
+        if (creds.State != CredentialState.Valid ||
+            rpc.RpcLifecycle != RpcLifecycle.Connected ||
+            rpc.VpnLifecycle != VpnLifecycle.Stopped)
+        {
+            AppBootstrapLogger.Info($"ConnectOnLaunch skipped (cred={creds.State}, rpc={rpc.RpcLifecycle}, vpn={rpc.VpnLifecycle})");
+            return;
+        }
+
+        await rpcController.StartVpn(ct);
+        AppBootstrapLogger.Info("ConnectOnLaunch started VPN successfully");
     }
 
     private void ConfigureTrayIcons(TrayIconViewModel trayIconViewModel)

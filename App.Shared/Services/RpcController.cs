@@ -277,15 +277,19 @@ public class RpcController : IRpcController
 
     private void SpeakerOnError(Exception e)
     {
-        Debug.WriteLine($"Error: {e}");
-        try
+        _logger.LogWarning(e, "RPC speaker error; attempting immediate reconnect");
+
+        _ = Task.Run(async () =>
         {
-            using var _ = Reconnect(CancellationToken.None);
-        }
-        catch
-        {
-            // best effort to immediately reconnect
-        }
+            try
+            {
+                await Reconnect(CancellationToken.None);
+            }
+            catch (Exception reconnectError)
+            {
+                _logger.LogWarning(reconnectError, "Immediate reconnect after speaker error failed");
+            }
+        });
     }
 
     private void AssertRpcConnected()
