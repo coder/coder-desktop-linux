@@ -26,7 +26,7 @@ public partial class TrayWindowDisconnectedViewModel : ObservableObject
 
     private void UpdateFromRpcModel(RpcModel rpcModel)
     {
-        ReconnectButtonEnabled = rpcModel.RpcLifecycle != RpcLifecycle.Disconnected;
+        ReconnectButtonEnabled = rpcModel.RpcLifecycle == RpcLifecycle.Disconnected;
     }
 
     [RelayCommand]
@@ -36,12 +36,14 @@ public partial class TrayWindowDisconnectedViewModel : ObservableObject
         {
             ReconnectFailed = false;
             ErrorMessage = string.Empty;
+            ReconnectButtonEnabled = false;
             await _rpcController.Reconnect();
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
             ReconnectFailed = true;
+            ReconnectButtonEnabled = true;
         }
     }
 }
