@@ -32,6 +32,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Vpn\Vpn.csproj" />
+        <ProjectReference Include="..\Vpn.Linux\Vpn.Linux.csproj" />
     </ItemGroup>
 
 </Project>

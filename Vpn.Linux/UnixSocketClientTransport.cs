@@ -16,16 +16,34 @@ public class UnixSocketClientTransport : IRpcClientTransport
 
     public async Task<Stream> ConnectAsync(CancellationToken ct)
     {
-        var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        try
+        var retryDelay = TimeSpan.FromMilliseconds(100);
+
+        while (true)
         {
-            await socket.ConnectAsync(new UnixDomainSocketEndPoint(_socketPath), ct);
-            return new NetworkStream(socket, ownsSocket: true);
+            ct.ThrowIfCancellationRequested();
+            var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            try
+            {
+                await socket.ConnectAsync(new UnixDomainSocketEndPoint(_socketPath), ct);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch (SocketException ex) when (IsSocketUnavailable(ex) && !ct.IsCancellationRequested)
+            {
+                socket.Dispose();
+                await Task.Delay(retryDelay, ct);
+                retryDelay = TimeSpan.FromMilliseconds(Math.Min(retryDelay.TotalMilliseconds * 2, 1000));
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
         }
-        catch
-        {
-            socket.Dispose();
-            throw;
-        }
+    }
+
+    private static bool IsSocketUnavailable(SocketException ex)
+    {
+        // Keep Linux startup behavior aligned with Windows named-pipe connect: wait for the service socket.
+        return ex.SocketErrorCode is SocketError.AddressNotAvailable or SocketError.ConnectionRefused;
     }
 }
