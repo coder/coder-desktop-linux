@@ -156,7 +156,7 @@ public partial class App : Application
         credentialLoadCts.CancelAfter(TimeSpan.FromSeconds(15));
 
         var loadCredentialsTask = credentialManager.LoadCredentials(credentialLoadCts.Token);
-        var reconnectTask = ReconnectWithStartupRetryAsync(rpcController, appStopping);
+        var reconnectTask = rpcController.Reconnect(appStopping);
 
         try
         {
@@ -173,10 +173,7 @@ public partial class App : Application
                 AppBootstrapLogger.Error("Startup reconnect failed unexpectedly", reconnectTask.Exception?.GetBaseException());
         }
 
-        var reconnectSucceeded = reconnectTask is { IsCompletedSuccessfully: true, Result: true };
-
-        if (!reconnectSucceeded)
-            AppBootstrapLogger.Warn("Startup continuing in disconnected state after retry exhaustion");
+        var reconnectSucceeded = reconnectTask.IsCompletedSuccessfully;
 
         try
         {
@@ -186,41 +183,6 @@ public partial class App : Application
         {
             AppBootstrapLogger.Error("ConnectOnLaunch failed", ex);
         }
-    }
-
-    private async Task<bool> ReconnectWithStartupRetryAsync(IRpcController rpcController, CancellationToken ct)
-    {
-        TimeSpan[] delays =
-        [
-            TimeSpan.Zero,
-            TimeSpan.FromSeconds(1),
-            TimeSpan.FromSeconds(2),
-            TimeSpan.FromSeconds(4),
-            TimeSpan.FromSeconds(8),
-        ];
-
-        Exception? lastError = null;
-
-        for (var attempt = 0; attempt < delays.Length; attempt++)
-        {
-            if (attempt > 0)
-                await Task.Delay(delays[attempt], ct);
-
-            try
-            {
-                await rpcController.Reconnect(ct);
-                AppBootstrapLogger.Info($"RPC reconnect succeeded on attempt {attempt + 1}/{delays.Length}");
-                return true;
-            }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
-            {
-                lastError = ex;
-                AppBootstrapLogger.Warn($"RPC reconnect attempt {attempt + 1}/{delays.Length} failed: {ex.Message}");
-            }
-        }
-
-        AppBootstrapLogger.Error("RPC reconnect exhausted startup retries", lastError);
-        return false;
     }
 
     private async Task MaybeAutoStartVpnOnLaunchAsync(
