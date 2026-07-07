@@ -16,7 +16,8 @@ public class LinuxXdgStartupManager : IStartupManager
 
     public LinuxXdgStartupManager(string? execPath = null)
     {
-        _execPath = execPath ?? "/usr/bin/coder-desktop";
+        // Bare command name so the entry resolves via PATH regardless of install prefix.
+        _execPath = execPath ?? "coder-desktop";
     }
 
     public bool Enable()
