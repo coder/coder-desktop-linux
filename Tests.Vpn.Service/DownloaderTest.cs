@@ -363,6 +363,54 @@ public class DownloaderTest
         Assert.That(ex.Message, Is.EqualTo("Downloaded file size does not match expected response content length: Expected=5, BytesWritten=4"));
     }
 
+    [Test(Description = "Download sends the Core User-Agent")]
+    [CancelAfter(30_000)]
+    public async Task SendsUserAgent(CancellationToken ct)
+    {
+        // TestHttpServer turns a handler exception into a 500, so capture the header and assert
+        // on it after the download completes rather than inside the handler.
+        string? observedUserAgent = null;
+        using var httpServer = new TestHttpServer(ctx =>
+        {
+            observedUserAgent = ctx.Request.UserAgent;
+            ctx.Response.StatusCode = 200;
+        });
+        var url = new Uri(httpServer.BaseUrl + "/test");
+        var destPath = Path.Combine(_tempDir, "test");
+
+        var manager = new Downloader(NullLogger<Downloader>.Instance);
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        var dlTask = await manager.StartDownloadAsync(req, destPath, NullDownloadValidator.Instance, ct);
+        await dlTask.Task;
+
+        Assert.That(observedUserAgent, Is.Not.Null);
+        Assert.That(observedUserAgent, Does.StartWith("coder-desktop-core/"));
+        Assert.That(observedUserAgent, Does.Match(
+            @"^coder-desktop-core/[0-9]+\.[0-9]+\.[0-9]+ \((windows|darwin|linux)/(386|amd64|arm|arm64)\)$"));
+    }
+
+    [Test(Description = "A caller-supplied User-Agent overrides the default")]
+    [CancelAfter(30_000)]
+    public async Task CallerUserAgentWins(CancellationToken ct)
+    {
+        string? observedUserAgent = null;
+        using var httpServer = new TestHttpServer(ctx =>
+        {
+            observedUserAgent = ctx.Request.UserAgent;
+            ctx.Response.StatusCode = 200;
+        });
+        var url = new Uri(httpServer.BaseUrl + "/test");
+        var destPath = Path.Combine(_tempDir, "test");
+
+        var manager = new Downloader(NullLogger<Downloader>.Instance);
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.UserAgent.ParseAdd("custom-agent/1.2.3");
+        var dlTask = await manager.StartDownloadAsync(req, destPath, NullDownloadValidator.Instance, ct);
+        await dlTask.Task;
+
+        Assert.That(observedUserAgent, Is.EqualTo("custom-agent/1.2.3"));
+    }
+
     [Test(Description = "Download with custom headers")]
     [CancelAfter(30_000)]
     public async Task WithHeaders(CancellationToken ct)

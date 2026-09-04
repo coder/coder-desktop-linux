@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 #if WINDOWS
 using System.Security.Cryptography.X509Certificates;
 #endif
+using Coder.Desktop.CoderSdk;
 using Coder.Desktop.Vpn.Utilities;
 using Microsoft.Extensions.Logging;
 #if WINDOWS
@@ -356,10 +357,7 @@ public class DownloadTask
     private const int BufferSize = 64 * 1024;
     private const string XOriginalContentLengthHeader = "X-Original-Content-Length"; // overrides Content-Length if available
 
-    private static readonly HttpClient HttpClient = new(new HttpClientHandler
-    {
-        AutomaticDecompression = DecompressionMethods.All,
-    });
+    private static readonly HttpClient HttpClient = NewHttpClient();
     private readonly string _destinationDirectory;
 
     private readonly ILogger _logger;
@@ -370,6 +368,16 @@ public class DownloadTask
     private readonly string _tempDestinationPath;
 
     public readonly HttpRequestMessage Request;
+
+    private static HttpClient NewHttpClient()
+    {
+        var client = new HttpClient(new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+        });
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent.Build(CoderComponent.Core));
+        return client;
+    }
 
     public Task Task { get; private set; } = null!; // Set in EnsureStartedAsync
     public bool DownloadStarted { get; private set; } // Whether we've received headers yet and started the actual download

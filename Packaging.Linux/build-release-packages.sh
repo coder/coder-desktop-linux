@@ -61,12 +61,14 @@ echo "[release-packaging] Publishing App.Avalonia (${RID})"
 dotnet publish "$ROOT_DIR/App.Avalonia" \
   -r "$RID" \
   -c Release \
+  /p:Version="$VERSION" \
   -o "$STAGE_DIR/usr/lib/coder-desktop/app"
 
 echo "[release-packaging] Publishing Vpn.Service (${RID})"
 dotnet publish "$ROOT_DIR/Vpn.Service" \
   -r "$RID" \
   -c Release \
+  /p:Version="$VERSION" \
   -o "$STAGE_DIR/usr/lib/coder-desktop/service"
 
 mkdir -p "$STAGE_DIR/usr/bin"
