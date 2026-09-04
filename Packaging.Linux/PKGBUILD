@@ -26,11 +26,13 @@ build() {
   dotnet publish "${repo_root}/App.Avalonia" \
     -r "${rid}" \
     -c Release \
+    /p:Version="${pkgver}" \
     -o "${srcdir}/build/app"
 
   dotnet publish "${repo_root}/Vpn.Service" \
     -r "${rid}" \
     -c Release \
+    /p:Version="${pkgver}" \
     -o "${srcdir}/build/service"
 }
 
