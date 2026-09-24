@@ -1,0 +1,84 @@
+name: release-channel
+
+# Moment 2: change what the download page offers. Points one channel of the
+# `coder` product at a desktop-linux version that publish-assets has already
+# recorded, then re-renders that channel of the product manifest.
+#
+# Called by release-linux.yaml for tagged releases, or run by hand to promote
+# (or retract to) any published version, including merge builds.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      channel:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published desktop-linux version (e.g. 1.2.3 or 1.2.3.4)'
+        type: string
+        required: true
+      channel:
+        description: 'Channel to point at this version'
+        type: choice
+        # TODO(unknown): which product channels desktop-linux participates in.
+        options:
+          - mainline
+          - stable
+
+permissions: {}
+
+# Serializes this repository's channel moves. Other repositories render the same
+# manifest; render-manifest's conditional write handles those races.
+concurrency:
+  group: release-channel-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    # TODO(unknown): whether a protected environment with reviewers should gate
+    # channel changes, which are what customers see.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # TODO(unknown): replace with the shared product metadata once
+      # release-manifest owns it (suggestion C); titles must match every repo.
+      - name: Resolve channel title
+        id: channel
+        shell: bash
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          case "$CHANNEL" in
+            mainline) title="Mainline" ;;
+            stable)   title="Stable" ;;
+            *) echo "Unknown channel: $CHANNEL" >&2; exit 1 ;;
+          esac
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_MANIFEST_WORKLOAD_ID_PROVIDER }}
+          service_account: ${{ vars.GCP_MANIFEST_SERVICE_ACCOUNT }}
+
+      # BLOCKER: coder/release-manifest is internal; public repos cannot use it.
+      # Requires release-manifest suggestion A: `component` + `version` inputs
+      # that move the channel pointer before rendering.
+      - name: Render release manifest
+        uses: coder/release-manifest/render-manifest@39e1ba77c8f22915cc354fbac635d84344fd6aa3 # changes/manifest-support
+        with:
+          product: coder
+          title: Coder
+          component: desktop-linux
+          version: ${{ inputs.version }}
+          channel: ${{ inputs.channel }}
+          channel-title: ${{ steps.channel.outputs.title }}
+          destination: ${{ vars.RELEASE_MANIFEST_DESTINATION }}
+          public-base-url: ${{ vars.RELEASE_MANIFEST_PUBLIC_BASE_URL }}

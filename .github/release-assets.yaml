@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://releases.coder.com/schemas/v1/release-assets-config.schema.json
+$schema: https://releases.coder.com/schemas/v1/release-assets-config.schema.json
+
+# Consumed by coder/release-manifest/publish-assets. Every file attached to a
+# GitHub release must match exactly one rule, and every rule must match at least
+# one file, so renaming an artifact in Packaging.Linux/ requires updating this file.
+product: coder
+component: desktop-linux
+componentTitle: Linux Desktop Client
+componentDescription: Coder Desktop for Linux, providing workspace tunnelling and file sync.
+repo: coder/coder-desktop-linux
+
+assets:
+  - match: "coder-desktop_*_amd64.deb"
+    title: Debian package (x64)
+    kind: package-deb
+    os: linux
+    architecture: x64
+
+  - match: "coder-desktop_*_arm64.deb"
+    title: Debian package (arm64)
+    kind: package-deb
+    os: linux
+    architecture: arm64
+
+  - match: "coder-desktop-*.x86_64.rpm"
+    title: RPM package (x64)
+    kind: package-rpm
+    os: linux
+    architecture: x64
+
+  - match: "coder-desktop-*.aarch64.rpm"
+    title: RPM package (arm64)
+    kind: package-rpm
+    os: linux
+    architecture: arm64
+
+  - match: "coder-desktop_*_amd64.tar.gz"
+    title: Linux archive (x64)
+    kind: archive
+    os: linux
+    architecture: x64
+
+  - match: "coder-desktop_*_arm64.tar.gz"
+    title: Linux archive (arm64)
+    kind: archive
+    os: linux
+    architecture: arm64
+
+  - match: "coder-desktop_*_aur.tar.gz"
+    title: AUR source archive
+    kind: archive
+    os: linux
+    architecture: any
+    published: false

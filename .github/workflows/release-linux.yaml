@@ -1,46 +1,103 @@
 name: release-linux
 
+# Builds Linux packages and records them with coder/release-manifest.
+#
+#   push to main      -> prerelease vX.Y.Z.N (N = commits since the last tag),
+#                        asset document published, no channel change
+#   push tag vX.Y.Z   -> release vX.Y.Z, asset document published, and the
+#                        channel named by vars.RELEASE_MANIFEST_RELEASE_CHANNEL
+#                        (if set) is moved to it via release-channel.yaml
+#   workflow_dispatch -> packages built and classified offline, nothing written
+#
+# Moving any channel later is release-channel.yaml's job, never this workflow's.
+
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+      # Four-part tags are created by merge builds below; never rebuild them.
+      - '!v*.*.*.*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.2.3)'
+        description: 'Version to build and classify without publishing (e.g. 1.2.3)'
         required: true
 
-permissions:
-  contents: write
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.resolve_version.outputs.version }}
+      tag: ${{ steps.resolve_version.outputs.tag }}
+      # release | merge | dry-run | skip
+      kind: ${{ steps.resolve_version.outputs.kind }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - name: Resolve version
         id: resolve_version
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            version="${{ inputs.version }}"
-          else
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$INPUT_VERSION"
+            kind="dry-run"
+          elif [[ "$REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
+            kind="release"
+          else
+            # Same scheme as coder-desktop-macos scripts/version.sh: X.Y.Z.N.
+            # A pre-release suffix such as -devel.N is not used because RPM
+            # versions cannot contain '-'.
+            describe="$(git describe --tags --long --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude 'v*.*.*.*')"
+            if [[ ! "$describe" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-g[0-9a-f]+$ ]]; then
+              echo "Could not parse git describe output: $describe" >&2
+              exit 1
+            fi
+            if [[ "${BASH_REMATCH[2]}" == "0" ]]; then
+              # HEAD is a release tag; the tag push builds it.
+              echo "kind=skip" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            kind="merge"
           fi
 
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             echo "Invalid version: $version" >&2
             exit 1
           fi
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "kind=$kind"
+          } >> "$GITHUB_OUTPUT"
 
   package:
     runs-on: ubuntu-latest
     needs: prepare
+    if: needs.prepare.outputs.kind != 'skip'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +133,9 @@ jobs:
   aur-source:
     runs-on: ubuntu-latest
     needs: prepare
+    if: needs.prepare.outputs.kind != 'skip'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -96,7 +156,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [prepare, package, aur-source]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: needs.prepare.outputs.kind == 'release' || needs.prepare.outputs.kind == 'merge'
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -105,10 +167,94 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      # A unique tag per merge, not a rolling `preview` tag: the asset document
+      # is immutable, so the URLs and digests it records must never be clobbered.
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: v${{ needs.prepare.outputs.version }}
-          generate_release_notes: true
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.prepare.outputs.tag }}
+          prerelease: ${{ needs.prepare.outputs.kind == 'merge' }}
+          make_latest: ${{ needs.prepare.outputs.kind == 'release' && 'true' || 'false' }}
+          generate_release_notes: ${{ needs.prepare.outputs.kind == 'release' }}
           files: |
             release-assets/*
+
+  # Moment 1: assets exist. Record their metadata; do not touch any channel.
+  # Runs here because a release created with GITHUB_TOKEN does not trigger
+  # `on: release` in other workflows.
+  publish-assets:
+    runs-on: ubuntu-latest
+    needs: [prepare, release]
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
+    steps:
+      # publish-assets reads .github/release-assets.yaml from the workspace, so
+      # the config is the one at the commit that produced the artifacts.
+      - uses: actions/checkout@v4
+
+      # TODO(unknown): WIF provider and service account allowed to write the
+      # manifest prefix of the release bucket from this repository.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_MANIFEST_WORKLOAD_ID_PROVIDER }}
+          service_account: ${{ vars.GCP_MANIFEST_SERVICE_ACCOUNT }}
+
+      # BLOCKER: coder/release-manifest is internal; public repos cannot use it.
+      # Requires release-manifest suggestion A: `channel` no longer required.
+      - name: Publish release assets
+        id: publish
+        uses: coder/release-manifest/publish-assets@39e1ba77c8f22915cc354fbac635d84344fd6aa3 # changes/manifest-support
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          version: ${{ needs.prepare.outputs.version }}
+          destination: ${{ vars.RELEASE_MANIFEST_DESTINATION }}
+          public-base-url: ${{ vars.RELEASE_MANIFEST_PUBLIC_BASE_URL }}
+
+  # Moment 2 (automatic part): a tagged release moves the configured channel.
+  # Merge builds never do; promote those with release-channel.yaml.
+  release-channel:
+    needs: [prepare, publish-assets]
+    if: needs.prepare.outputs.kind == 'release' && vars.RELEASE_MANIFEST_RELEASE_CHANNEL != ''
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-channel.yaml
+    with:
+      version: ${{ needs.publish-assets.outputs.version }}
+      channel: ${{ vars.RELEASE_MANIFEST_RELEASE_CHANNEL }}
+
+  # Manual runs classify the freshly built packages against the config with no
+  # GitHub release and no storage writes, catching renamed artifacts early.
+  validate-assets:
+    runs-on: ubuntu-latest
+    needs: [prepare, package, aur-source]
+    if: needs.prepare.outputs.kind == 'dry-run'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: linux-packages-*
+          path: release-assets
+          merge-multiple: true
+
+      # Requires release-manifest suggestion B: local `files` source and a
+      # credential-free `memory://` destination.
+      - name: Classify built packages
+        uses: coder/release-manifest/publish-assets@39e1ba77c8f22915cc354fbac635d84344fd6aa3 # changes/manifest-support
+        with:
+          files: release-assets/*
+          tag: ${{ needs.prepare.outputs.tag }}
+          version: ${{ needs.prepare.outputs.version }}
+          destination: memory://
+          public-base-url: https://releases.coder.com
+          dry-run: "true"
