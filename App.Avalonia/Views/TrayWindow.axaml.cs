@@ -24,7 +24,6 @@ public partial class TrayWindow : Window
     private TrayWindowLoginRequiredPage _loginRequiredPage;
     private TrayWindowMainPage _mainPage;
 
-    private bool _hideOnFirstOpen;
     private DateTime _suppressAutoHideUntilUtc;
     private bool _positionUpdateQueued;
     private int _sizeChangedCount;
@@ -63,13 +62,6 @@ public partial class TrayWindow : Window
         Opened += (_, _) =>
         {
             AppBootstrapLogger.Info("Tray window opened");
-            if (_hideOnFirstOpen)
-            {
-                _hideOnFirstOpen = false;
-                Hide();
-                return;
-            }
-
             PositionInBottomRight();
         };
 
@@ -125,11 +117,6 @@ public partial class TrayWindow : Window
         _credentialManager.CredentialsChanged += CredentialManagerOnCredentialsChanged;
 
         SetPageByState(_rpcController.GetState(), _credentialManager.GetCachedCredentials());
-    }
-
-    public void RequestHideOnFirstOpen()
-    {
-        _hideOnFirstOpen = true;
     }
 
     public void ShowNearSystemTray()

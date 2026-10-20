@@ -113,10 +113,10 @@ public partial class App : Application
             }
         }
 
+        // Not desktop.MainWindow: the lifetime always shows that at startup.
+        // Hiding it again right away races the X11 window manager, which can
+        // leave an empty window on screen.
         _trayWindow = _services.GetRequiredService<TrayWindow>();
-
-        // Make TrayWindow the MainWindow so dialogs can use it as an owner.
-        desktop.MainWindow = _trayWindow;
 
         // If launched with --minimized (e.g. XDG autostart), keep startup
         // behavior as tray-first. Otherwise, show the tray window so manual
@@ -124,11 +124,11 @@ public partial class App : Application
         if (startMinimized)
         {
             AppBootstrapLogger.Info("Startup mode: minimized to tray (--minimized)");
-            _trayWindow.RequestHideOnFirstOpen();
         }
         else
         {
             AppBootstrapLogger.Info("Startup mode: showing tray window");
+            _trayWindow.Show();
         }
 
         _trayIconViewModel = new TrayIconViewModel(ToggleTrayWindow, () => desktop.Shutdown());
