@@ -86,10 +86,11 @@ public sealed class AvaloniaWindowService(IServiceProvider services) : IWindowSe
     {
         var desktop = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
 
-        if (desktop?.MainWindow is TrayWindow trayWindow && trayWindow != window && trayWindow.IsVisible)
+        var trayWindow = desktop?.Windows.OfType<TrayWindow>().FirstOrDefault();
+        if (trayWindow != null && trayWindow != window && trayWindow.IsVisible)
             trayWindow.Hide();
 
-        var owner = useOwner ? desktop?.MainWindow : null;
+        var owner = useOwner ? trayWindow : null;
         if (owner != null && owner != window && owner.IsVisible)
             window.Show(owner);
         else

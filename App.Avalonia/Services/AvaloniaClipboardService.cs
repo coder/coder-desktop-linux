@@ -11,7 +11,7 @@ public class AvaloniaClipboardService : IClipboardService
     {
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var clipboard = desktop.MainWindow?.Clipboard;
+            var clipboard = desktop.Windows.FirstOrDefault()?.Clipboard;
             if (clipboard != null)
                 await clipboard.SetTextAsync(text);
         }
