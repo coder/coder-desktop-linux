@@ -29,7 +29,6 @@ public partial class TrayWindow : Window
     private bool _positionUpdateQueued;
     private int _sizeChangedCount;
     private DateTime _lastSizeChangedLogUtc = DateTime.MinValue;
-    private DispatcherTimer? _uiHeartbeatTimer;
 
     // Parameterless constructor keeps the XAML runtime loader/designer path valid.
     public TrayWindow()
@@ -90,17 +89,7 @@ public partial class TrayWindow : Window
             QueuePositionUpdate();
         };
 
-        Closed += (_, _) =>
-        {
-            _uiHeartbeatTimer?.Stop();
-            DetachRuntimeStateListeners();
-        };
-
-        _uiHeartbeatTimer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background, (_, _) =>
-        {
-            AppBootstrapLogger.Info($"UI heartbeat page={_vm.Page} visible={IsVisible} frame={FrameSize?.Width}x{FrameSize?.Height}");
-        });
-        _uiHeartbeatTimer.Start();
+        Closed += (_, _) => DetachRuntimeStateListeners();
 
         // Ensure initial content is rendered even when the page value starts at Loading.
         UpdatePageContent(_vm.Page);
@@ -232,11 +221,9 @@ public partial class TrayWindow : Window
             return;
 
         _positionUpdateQueued = true;
-        AppBootstrapLogger.Info("QueuePositionUpdate queued");
         Dispatcher.UIThread.Post(() =>
         {
             _positionUpdateQueued = false;
-            AppBootstrapLogger.Info("QueuePositionUpdate running");
             if (IsVisible)
                 PositionInBottomRight();
         }, DispatcherPriority.Background);
