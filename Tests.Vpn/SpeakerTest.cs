@@ -357,4 +357,27 @@ public class SpeakerTest
         // The send task should complete with an exception
         Assert.ThrowsAsync<TaskCanceledException>(() => sendTask.AsTask());
     }
+
+    [Test(Description = "Fail a message that is awaiting a reply when the connection closes")]
+    [CancelAfter(30_000)]
+    public async Task ConnectionClosedWhileAwaitingReply(CancellationToken ct)
+    {
+        var (stream1, stream2) = BidirectionalPipe.NewInMemory();
+        var failStream = new FailableStream(stream1, null, null);
+        await using var speaker1 = new Speaker<ManagerMessage, TunnelMessage>(failStream);
+        await using var speaker2 = new Speaker<TunnelMessage, ManagerMessage>(stream2);
+        await Task.WhenAll(speaker1.StartAsync(ct), speaker2.StartAsync(ct));
+
+        var sendTask = speaker1.SendRequestAwaitReply(new ManagerMessage
+        {
+            Start = new StartRequest(),
+        }, ct);
+
+        // Close the connection before speaker2 replies
+        failStream.SetReadException(new IOException("Test read error"));
+
+        // The send task should fail without waiting for the test timeout
+        var gotEx = Assert.ThrowsAsync<IOException>(() => sendTask.AsTask());
+        Assert.That(gotEx.Message, Does.Contain("closed before the reply was received"));
+    }
 }
