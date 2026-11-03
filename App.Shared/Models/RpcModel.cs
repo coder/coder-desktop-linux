@@ -165,6 +165,10 @@ public class RpcModel
 {
     public RpcLifecycle RpcLifecycle { get; set; } = RpcLifecycle.Disconnected;
 
+    // Why the last connection attempt failed or the connection dropped. Null
+    // after a successful connection.
+    public string? ConnectionError { get; set; }
+
     private VpnLifecycle _vpnLifecycle;
     public VpnLifecycle VpnLifecycle
     {
@@ -196,6 +200,7 @@ public class RpcModel
         return new RpcModel
         {
             RpcLifecycle = RpcLifecycle,
+            ConnectionError = ConnectionError,
             VpnLifecycle = VpnLifecycle,
             VpnStartupProgress = VpnStartupProgress?.Clone(),
             Workspaces = Workspaces,

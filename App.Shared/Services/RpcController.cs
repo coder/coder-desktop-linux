@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Coder.Desktop.App.Models;
 using Coder.Desktop.Vpn;
 using Coder.Desktop.Vpn.Proto;
@@ -9,12 +8,24 @@ namespace Coder.Desktop.App.Services;
 
 public class RpcController : IRpcController
 {
+    private static readonly TimeSpan MinRetryDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(5);
+
     private readonly ILogger<RpcController> _logger;
     private readonly ICredentialManager _credentialManager;
     private readonly IRpcClientTransport _transport;
 
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private readonly SemaphoreSlim _reconnectNow = new(0, 1);
+    private Task? _connectionLoop;
+
     private readonly RaiiSemaphoreSlim _operationLock = new(1, 1);
     private Speaker<ClientMessage, ServiceMessage>? _speaker;
+
+    // Whether the VPN should run. The connection loop reads it after each
+    // connection, so the VPN comes back after a service restart. Protected by
+    // _operationLock.
+    private bool _vpnWanted;
 
     private readonly RaiiSemaphoreSlim _stateLock = new(1, 1);
     private readonly RpcModel _state = new();
@@ -34,120 +45,37 @@ public class RpcController : IRpcController
         return _state.Clone();
     }
 
-    public async Task Reconnect(CancellationToken ct = default)
+    public void Start(bool startVpn)
     {
-        using var _ = await AcquireOperationLockNowAsync();
-        MutateState(state =>
-        {
-            state.RpcLifecycle = RpcLifecycle.Connecting;
-            state.VpnLifecycle = VpnLifecycle.Stopped;
-            state.Workspaces = [];
-            state.Agents = [];
-        });
+        if (_connectionLoop != null)
+            throw new InvalidOperationException("RpcController is already started");
+        _vpnWanted = startVpn;
+        _connectionLoop = Task.Run(() => KeepConnected(_lifetimeCts.Token));
+    }
 
-        if (_speaker != null)
-            try
-            {
-                await DisposeSpeaker();
-            }
-            catch (Exception e)
-            {
-                // TODO: log/notify?
-                Debug.WriteLine($"Error disposing existing Speaker: {e}");
-            }
-
+    public void ReconnectNow()
+    {
         try
         {
-            var stream = await _transport.ConnectAsync(ct);
-            _speaker = new Speaker<ClientMessage, ServiceMessage>(stream);
-            _speaker.Receive += SpeakerOnReceive;
-            _speaker.Error += SpeakerOnError;
-            await _speaker.StartAsync(ct);
+            _reconnectNow.Release();
         }
-        catch (Exception e)
+        catch (SemaphoreFullException)
         {
-            MutateState(state =>
-            {
-                state.RpcLifecycle = RpcLifecycle.Disconnected;
-                state.VpnLifecycle = VpnLifecycle.Unknown;
-                state.Workspaces = [];
-                state.Agents = [];
-            });
-            throw new RpcOperationException("Failed to reconnect to the RPC server", e);
+            // A reconnect is already pending.
         }
-
-        MutateState(state =>
-        {
-            state.RpcLifecycle = RpcLifecycle.Connected;
-            state.VpnLifecycle = VpnLifecycle.Unknown;
-            state.Workspaces = [];
-            state.Agents = [];
-        });
-
-        var statusReply = await _speaker.SendRequestAwaitReply(new ClientMessage
-        {
-            Status = new StatusRequest(),
-        }, ct);
-        if (statusReply.MsgCase != ServiceMessage.MsgOneofCase.Status)
-            throw new VpnLifecycleException(
-                $"Failed to get VPN status. Unexpected reply message type: {statusReply.MsgCase}");
-        ApplyStatusUpdate(statusReply.Status);
     }
 
     public async Task StartVpn(CancellationToken ct = default)
     {
-        using var _ = await AcquireOperationLockNowAsync();
-        AssertRpcConnected();
-
-        var credentials = _credentialManager.GetCachedCredentials();
-        if (credentials.State != CredentialState.Valid)
-            throw new RpcOperationException(
-                $"Cannot start VPN without valid credentials, current state: {credentials.State}");
-
-        MutateState(state =>
-        {
-            state.VpnLifecycle = VpnLifecycle.Starting;
-        });
-
-        ServiceMessage reply;
-        try
-        {
-            reply = await _speaker!.SendRequestAwaitReply(new ClientMessage
-            {
-                Start = new StartRequest
-                {
-                    CoderUrl = credentials.CoderUrl?.ToString(),
-                    ApiToken = credentials.ApiToken,
-                },
-            }, ct);
-        }
-        catch (Exception e)
-        {
-            MutateState(state => { state.VpnLifecycle = VpnLifecycle.Stopped; });
-            throw new RpcOperationException("Failed to send start command to service", e);
-        }
-
-        if (reply.MsgCase != ServiceMessage.MsgOneofCase.Start)
-        {
-            MutateState(state => { state.VpnLifecycle = VpnLifecycle.Unknown; });
-            throw new VpnLifecycleException($"Failed to start VPN. Unexpected reply message type: {reply.MsgCase}");
-        }
-
-        if (!reply.Start.Success)
-        {
-            // We use Stopped instead of Unknown here as it's usually the case
-            // that a failed start got cleaned up successfully.
-            MutateState(state => { state.VpnLifecycle = VpnLifecycle.Stopped; });
-            throw new VpnLifecycleException(
-                $"Failed to start VPN. Service reported failure: {reply.Start.ErrorMessage}");
-        }
-
-        MutateState(state => { state.VpnLifecycle = VpnLifecycle.Started; });
+        using var _ = await _operationLock.LockAsync(ct);
+        _vpnWanted = true;
+        await StartVpnLocked(ct);
     }
 
     public async Task StopVpn(CancellationToken ct = default)
     {
-        using var _ = await AcquireOperationLockNowAsync();
+        using var _ = await _operationLock.LockAsync(ct);
+        _vpnWanted = false;
         AssertRpcConnected();
 
         MutateState(state => { state.VpnLifecycle = VpnLifecycle.Stopping; });
@@ -186,9 +114,210 @@ public class RpcController : IRpcController
 
     public async ValueTask DisposeAsync()
     {
-        if (_speaker != null)
-            await _speaker.DisposeAsync();
+        await _lifetimeCts.CancelAsync();
+        if (_connectionLoop != null)
+            await _connectionLoop;
+        await DisposeSpeaker();
         GC.SuppressFinalize(this);
+    }
+
+    private async Task KeepConnected(CancellationToken ct)
+    {
+        var retryDelay = MinRetryDelay;
+        var failedAttempts = 0;
+        try
+        {
+            while (true)
+            {
+                Task<Exception> connectionLost;
+                try
+                {
+                    connectionLost = await Connect(ct);
+                }
+                catch (Exception e) when (!ct.IsCancellationRequested)
+                {
+                    failedAttempts++;
+                    // Log only the first failure: the service can be down for
+                    // a long time.
+                    if (failedAttempts == 1)
+                        _logger.LogWarning(e, "Failed to connect to the RPC server; retrying until it is available");
+                    else
+                        _logger.LogDebug(e, "RPC connection attempt {Attempt} failed", failedAttempts);
+
+                    await _reconnectNow.WaitAsync(retryDelay, ct);
+                    retryDelay = TimeSpan.FromTicks(Math.Min(retryDelay.Ticks * 2, MaxRetryDelay.Ticks));
+                    continue;
+                }
+
+                _logger.LogInformation("Connected to the RPC server after {FailedAttempts} failed attempts",
+                    failedAttempts);
+                failedAttempts = 0;
+                retryDelay = MinRetryDelay;
+                // Drop a ReconnectNow request that came in during the attempt.
+                _reconnectNow.Wait(0);
+
+                await RestoreVpn(ct);
+                var error = await connectionLost.WaitAsync(ct);
+                _logger.LogWarning(error, "Lost the connection to the RPC server; reconnecting");
+                await Disconnect(error, ct);
+            }
+        }
+        catch (Exception) when (ct.IsCancellationRequested)
+        {
+            // The controller is being disposed.
+        }
+        catch (Exception e)
+        {
+            _logger.LogCritical(e, "RPC connection loop stopped unexpectedly");
+        }
+    }
+
+    // Returns a task that completes with the error that ends the connection.
+    private async Task<Task<Exception>> Connect(CancellationToken ct)
+    {
+        using var _ = await _operationLock.LockAsync(ct);
+        MutateState(state =>
+        {
+            state.RpcLifecycle = RpcLifecycle.Connecting;
+            state.VpnLifecycle = VpnLifecycle.Unknown;
+            state.Workspaces = [];
+            state.Agents = [];
+        });
+
+        var connectionLost = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            var stream = await _transport.ConnectAsync(ct);
+            _speaker = new Speaker<ClientMessage, ServiceMessage>(stream);
+            _speaker.Receive += SpeakerOnReceive;
+            _speaker.Error += e => connectionLost.TrySetResult(e);
+            await _speaker.StartAsync(ct);
+
+            var statusReply = await _speaker.SendRequestAwaitReply(new ClientMessage
+            {
+                Status = new StatusRequest(),
+            }, ct);
+            if (statusReply.MsgCase != ServiceMessage.MsgOneofCase.Status)
+                throw new VpnLifecycleException(
+                    $"Failed to get VPN status. Unexpected reply message type: {statusReply.MsgCase}");
+            ApplyStatusUpdate(statusReply.Status);
+        }
+        catch (Exception e)
+        {
+            await DisposeSpeaker();
+            MutateState(state =>
+            {
+                state.RpcLifecycle = RpcLifecycle.Disconnected;
+                state.ConnectionError = e.Message;
+            });
+            throw;
+        }
+
+        MutateState(state =>
+        {
+            state.RpcLifecycle = RpcLifecycle.Connected;
+            state.ConnectionError = null;
+        });
+        return connectionLost.Task;
+    }
+
+    private async Task Disconnect(Exception error, CancellationToken ct)
+    {
+        // Requests on a closed connection fail at once, so an operation that
+        // holds the lock releases it soon.
+        using var _ = await _operationLock.LockAsync(ct);
+        await DisposeSpeaker();
+        MutateState(state =>
+        {
+            state.RpcLifecycle = RpcLifecycle.Disconnected;
+            state.ConnectionError = error.Message;
+            state.VpnLifecycle = VpnLifecycle.Unknown;
+            state.Workspaces = [];
+            state.Agents = [];
+        });
+    }
+
+    // Starts the VPN if it should run but the service reports it as stopped,
+    // for example after a service restart or at app launch.
+    private async Task RestoreVpn(CancellationToken ct)
+    {
+        using var _ = await _operationLock.LockAsync(ct);
+        if (!_vpnWanted || GetState().VpnLifecycle != VpnLifecycle.Stopped)
+            return;
+
+        var credentialState = _credentialManager.GetCachedCredentials().State;
+        if (credentialState != CredentialState.Valid)
+        {
+            // Do not start the VPN later with credentials that the user adds
+            // after this point.
+            _vpnWanted = false;
+            _logger.LogInformation("Not starting the VPN after connecting: credentials are {State}", credentialState);
+            return;
+        }
+
+        _logger.LogInformation("Starting the VPN after connecting to the RPC server");
+        try
+        {
+            await StartVpnLocked(ct);
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(e, "Failed to start the VPN after connecting to the RPC server");
+        }
+    }
+
+    private async Task StartVpnLocked(CancellationToken ct)
+    {
+        AssertRpcConnected();
+
+        var credentials = _credentialManager.GetCachedCredentials();
+        if (credentials.State != CredentialState.Valid)
+            throw new RpcOperationException(
+                $"Cannot start VPN without valid credentials, current state: {credentials.State}");
+
+        MutateState(state =>
+        {
+            state.VpnLifecycle = VpnLifecycle.Starting;
+        });
+
+        ServiceMessage reply;
+        try
+        {
+            reply = await _speaker!.SendRequestAwaitReply(new ClientMessage
+            {
+                Start = new StartRequest
+                {
+                    CoderUrl = credentials.CoderUrl?.ToString(),
+                    ApiToken = credentials.ApiToken,
+                },
+            }, ct);
+        }
+        catch (Exception e)
+        {
+            // Keep _vpnWanted: the connection failed, not the VPN, so the VPN
+            // starts again after the reconnect.
+            MutateState(state => { state.VpnLifecycle = VpnLifecycle.Stopped; });
+            throw new RpcOperationException("Failed to send start command to service", e);
+        }
+
+        if (reply.MsgCase != ServiceMessage.MsgOneofCase.Start)
+        {
+            _vpnWanted = false;
+            MutateState(state => { state.VpnLifecycle = VpnLifecycle.Unknown; });
+            throw new VpnLifecycleException($"Failed to start VPN. Unexpected reply message type: {reply.MsgCase}");
+        }
+
+        if (!reply.Start.Success)
+        {
+            _vpnWanted = false;
+            // We use Stopped instead of Unknown here as it's usually the case
+            // that a failed start got cleaned up successfully.
+            MutateState(state => { state.VpnLifecycle = VpnLifecycle.Stopped; });
+            throw new VpnLifecycleException(
+                $"Failed to start VPN. Service reported failure: {reply.Start.ErrorMessage}");
+        }
+
+        MutateState(state => { state.VpnLifecycle = VpnLifecycle.Started; });
     }
 
     private void MutateState(Action<RpcModel> mutator)
@@ -201,14 +330,6 @@ public class RpcController : IRpcController
         }
 
         StateChanged?.Invoke(this, newState);
-    }
-
-    private async Task<IDisposable> AcquireOperationLockNowAsync()
-    {
-        var locker = await _operationLock.LockAsync(TimeSpan.Zero);
-        if (locker == null)
-            throw new InvalidOperationException("Cannot perform operation while another operation is in progress");
-        return locker;
     }
 
     private void ApplyStatusUpdate(Status status)
@@ -270,26 +391,16 @@ public class RpcController : IRpcController
     {
         if (_speaker == null) return;
         _speaker.Receive -= SpeakerOnReceive;
-        _speaker.Error -= SpeakerOnError;
-        await _speaker.DisposeAsync();
-        _speaker = null;
-    }
-
-    private void SpeakerOnError(Exception e)
-    {
-        _logger.LogWarning(e, "RPC speaker error; attempting immediate reconnect");
-
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                await Reconnect(CancellationToken.None);
-            }
-            catch (Exception reconnectError)
-            {
-                _logger.LogWarning(reconnectError, "Immediate reconnect after speaker error failed");
-            }
-        });
+            await _speaker.DisposeAsync();
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "Failed to dispose the RPC speaker");
+        }
+
+        _speaker = null;
     }
 
     private void AssertRpcConnected()

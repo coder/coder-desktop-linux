@@ -155,66 +155,29 @@ public partial class App : Application
         using var credentialLoadCts = CancellationTokenSource.CreateLinkedTokenSource(appStopping);
         credentialLoadCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-        var loadCredentialsTask = credentialManager.LoadCredentials(credentialLoadCts.Token);
-        var reconnectTask = rpcController.Reconnect(appStopping);
-
+        // The RPC controller needs the loaded credentials to start the VPN.
+        // The tray window shows the loading page until then.
         try
         {
-            await Task.WhenAll(loadCredentialsTask, reconnectTask);
-            AppBootstrapLogger.Info("Initial credential load and RPC reconnect completed");
-        }
-        catch
-        {
-            if (loadCredentialsTask.IsFaulted)
-                AppBootstrapLogger.Error("Credential initialization failed", loadCredentialsTask.Exception?.GetBaseException());
-
-            // reconnectTask logs its own errors internally; just note if it threw here
-            if (reconnectTask.IsFaulted)
-                AppBootstrapLogger.Error("Startup reconnect failed unexpectedly", reconnectTask.Exception?.GetBaseException());
-        }
-
-        var reconnectSucceeded = reconnectTask.IsCompletedSuccessfully;
-
-        try
-        {
-            await MaybeAutoStartVpnOnLaunchAsync(settingsManager, credentialManager, rpcController, reconnectSucceeded, appStopping);
+            await credentialManager.LoadCredentials(credentialLoadCts.Token);
+            AppBootstrapLogger.Info("Initial credential load completed");
         }
         catch (Exception ex)
         {
-            AppBootstrapLogger.Error("ConnectOnLaunch failed", ex);
+            AppBootstrapLogger.Error("Credential initialization failed", ex);
         }
-    }
 
-    private async Task MaybeAutoStartVpnOnLaunchAsync(
-        ISettingsManager<CoderConnectSettings> settingsManager,
-        ICredentialManager credentialManager,
-        IRpcController rpcController,
-        bool reconnectSucceeded,
-        CancellationToken ct)
-    {
-        var settings = await settingsManager.Read(ct);
-        if (!settings.ConnectOnLaunch)
-            return;
-
-        if (!reconnectSucceeded)
+        var connectOnLaunch = false;
+        try
         {
-            AppBootstrapLogger.Info("ConnectOnLaunch skipped because startup reconnect did not succeed");
-            return;
+            connectOnLaunch = (await settingsManager.Read(appStopping)).ConnectOnLaunch;
         }
-
-        var creds = credentialManager.GetCachedCredentials();
-        var rpc = rpcController.GetState();
-
-        if (creds.State != CredentialState.Valid ||
-            rpc.RpcLifecycle != RpcLifecycle.Connected ||
-            rpc.VpnLifecycle != VpnLifecycle.Stopped)
+        catch (Exception ex)
         {
-            AppBootstrapLogger.Info($"ConnectOnLaunch skipped (cred={creds.State}, rpc={rpc.RpcLifecycle}, vpn={rpc.VpnLifecycle})");
-            return;
+            AppBootstrapLogger.Error("Failed to read settings; ConnectOnLaunch is off", ex);
         }
 
-        await rpcController.StartVpn(ct);
-        AppBootstrapLogger.Info("ConnectOnLaunch started VPN successfully");
+        rpcController.Start(connectOnLaunch);
     }
 
     private void ConfigureTrayIcons(TrayIconViewModel trayIconViewModel)

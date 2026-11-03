@@ -233,7 +233,8 @@ public class Speaker<TS, TR> : IAsyncDisposable
 
     /// <summary>
     ///     Send a message and wait for a reply. The reply will be returned and the callback will not be invoked as long as the
-    ///     reply is received before cancellation.
+    ///     reply is received before cancellation. Throws an IOException if the connection closes before the reply is
+    ///     received.
     /// </summary>
     /// <param name="message">Message to send - the Rpc field will be overwritten</param>
     /// <param name="ct">Optional cancellation token</param>
@@ -254,7 +255,11 @@ public class Speaker<TS, TR> : IAsyncDisposable
         try
         {
             await _serdes.WriteMessage(_conn, message, cts.Token);
-            // Wait for the reply to be received.
+            // Wait for the reply. If the receive loop stops first, the reply
+            // can never arrive.
+            await Task.WhenAny(tcs.Task, _receiveTask ?? tcs.Task).WaitAsync(cts.Token);
+            if (!tcs.Task.IsCompleted && !cts.IsCancellationRequested)
+                throw new IOException("RPC connection closed before the reply was received");
             return await tcs.Task.WaitAsync(cts.Token);
         }
         finally

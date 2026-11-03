@@ -16,23 +16,23 @@
                    VerticalAlignment="Center" />
 
         <TextBlock TextWrapping="Wrap"
-                   Text="Could not connect to the Coder Connect system service." />
+                   Text="Reconnecting to the Coder Connect system service&#x2026;" />
 
         <TextBlock TextWrapping="Wrap"
                    Margin="0,0,0,10"
-                   Text="Please ensure the system service is running. Refer to the documentation for troubleshooting instructions." />
+                   Text="If this takes a long time, ensure the system service is running. Refer to the documentation for troubleshooting instructions." />
 
         <controls:HorizontalRule />
 
         <TextBlock FontWeight="SemiBold"
                    TextWrapping="Wrap"
                    Foreground="Red"
-                   IsVisible="{CompiledBinding ReconnectFailed}"
-                   Text="Reconnect failed" />
+                   IsVisible="{CompiledBinding HasError}"
+                   Text="Last error" />
 
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       MaxHeight="500"
-                      IsVisible="{CompiledBinding ReconnectFailed}">
+                      IsVisible="{CompiledBinding HasError}">
 
             <TextBox TextWrapping="Wrap"
                      Margin="0,0,0,10"
@@ -46,7 +46,6 @@
         <Button Content="Reconnect now"
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Left"
-                Command="{CompiledBinding ReconnectCommand}"
-                IsEnabled="{CompiledBinding ReconnectButtonEnabled}" />
+                Command="{CompiledBinding ReconnectCommand}" />
     </StackPanel>
 </UserControl>
