@@ -10,7 +10,7 @@ Primary goals:
 - Ship installable Linux artifacts (`.deb`, `.rpm`, `.tar.gz`, and AUR source bundle).
 
 Technology choices:
-- **Language/runtime:** C# on .NET 8 (`net8.0` across projects)
+- **Language/runtime:** C# on .NET 10 (`net10.0` across projects)
 - **UI:** Avalonia 11 (`App.Avalonia`)
 - **Architecture:** DI with `Microsoft.Extensions.*`, shared ViewModel/service layer in `App.Shared`
 - **RPC/protocol:** Protobuf messages (`Vpn.Proto/vpn.proto`) + custom stream RPC (`Vpn/Speaker.cs`)

@@ -130,14 +130,14 @@ fi
 
 if [[ $sudo_service -eq 1 ]] && [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   sudo --preserve-env=XDG_RUNTIME_DIR,XDG_CACHE_HOME,HOME \
-    "$ROOT_DIR/Vpn.Service/bin/Release/net8.0/CoderVpnService" \
+    "$ROOT_DIR/Vpn.Service/bin/Release/net10.0/CoderVpnService" \
     "Manager:ServiceRpcSocketPath=$socket_path" \
     "Manager:TunnelBinaryPath=$tunnel_binary_path" \
     "Manager:TunnelBinaryAllowVersionMismatch=true" \
     "Serilog:WriteTo:0:Args:path=$service_file_log" \
     >"$service_stdout_log" 2>&1 &
 else
-  "$ROOT_DIR/Vpn.Service/bin/Release/net8.0/CoderVpnService" \
+  "$ROOT_DIR/Vpn.Service/bin/Release/net10.0/CoderVpnService" \
     "Manager:ServiceRpcSocketPath=$socket_path" \
     "Manager:TunnelBinaryPath=$tunnel_binary_path" \
     "Manager:TunnelBinaryAllowVersionMismatch=true" \
@@ -170,7 +170,7 @@ fi
 
 echo "[run-linux-dev] Starting Avalonia app..."
 CODER_DESKTOP_RPC_SOCKET_PATH="$socket_path" \
-"$ROOT_DIR/App.Avalonia/bin/Release/net8.0/Coder Desktop" "${app_args[@]}" \
+"$ROOT_DIR/App.Avalonia/bin/Release/net10.0/Coder Desktop" "${app_args[@]}" \
   >"$app_stdout_log" 2>&1 &
 app_pid="$!"
 
