@@ -21,7 +21,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore Coder.Desktop.sln
+        run: dotnet restore Coder.Desktop.sln --locked-mode
 
       - name: Build Avalonia app
         run: dotnet build App.Avalonia/App.Avalonia.csproj -c Release --no-restore

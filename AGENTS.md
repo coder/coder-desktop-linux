@@ -64,6 +64,14 @@ dotnet restore Coder.Desktop.sln
 dotnet build Coder.Desktop.sln -c Release --no-restore
 ```
 
+## Update lockfiles
+
+Lockfiles cover both release RIDs (`Directory.Build.props`); CI restores with `--locked-mode`.
+
+```bash
+dotnet restore Coder.Desktop.sln --force-evaluate
+```
+
 ## Format
 
 ```bash
