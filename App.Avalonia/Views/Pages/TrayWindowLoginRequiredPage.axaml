@@ -8,7 +8,7 @@
     <StackPanel Orientation="Vertical"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Top"
-                Margin="20"
+                Margin="16"
                 Spacing="10">
 
         <TextBlock Text="Coder Connect"
