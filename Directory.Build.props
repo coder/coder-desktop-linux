@@ -1,0 +1,5 @@
+<Project>
+    <PropertyGroup>
+        <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+    </PropertyGroup>
+</Project>

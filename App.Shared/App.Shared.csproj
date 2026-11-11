@@ -3,7 +3,7 @@
     <PropertyGroup>
         <AssemblyName>Coder.Desktop.App.Shared</AssemblyName>
         <RootNamespace>Coder.Desktop.App</RootNamespace>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>preview</LangVersion>
@@ -11,9 +11,9 @@
 
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
         <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
         <PackageReference Include="NetSparkleUpdater.SparkleUpdater" Version="3.0.3" />
     </ItemGroup>

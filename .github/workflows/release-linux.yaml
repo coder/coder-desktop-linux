@@ -51,13 +51,16 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Install packaging dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ruby ruby-dev build-essential rpm dpkg-dev
           sudo gem install --no-document fpm
+
+      - name: Restore (locked)
+        run: dotnet restore Coder.Desktop.sln --locked-mode
 
       - name: Build release packages
         env:
@@ -66,6 +69,9 @@ jobs:
         run: |
           chmod +x Packaging.Linux/*.sh
           ./Packaging.Linux/build-release-packages.sh "${{ matrix.arch }}"
+
+      - name: Verify lockfiles unchanged
+        run: git diff --exit-code -- '**/packages.lock.json'
 
       - name: Upload package artifacts (${{ matrix.arch }})
         uses: actions/upload-artifact@v4

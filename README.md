@@ -16,7 +16,7 @@ packaging assets.
 
 Requirements:
 
-- .NET 8 SDK
+- .NET 10 SDK (see `global.json`)
 - Linux desktop environment (for Avalonia tray UI testing)
 - `sudo` access (recommended for full VPN service integration in local dev)
 

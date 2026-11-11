@@ -111,7 +111,7 @@ Maintainer: Coder Technologies Inc. <support@coder.com>
 Description: Coder Desktop - Connect to Coder workspaces
  Provides a Linux tray app and root VPN service for connecting
  to Coder workspaces.
-Depends: dotnet-runtime-8.0, libnotify-bin, libsecret-tools
+Depends: dotnet-runtime-10.0, libnotify-bin, libsecret-tools
 Recommends: freerdp2-x11 | remmina
 Section: net
 Priority: optional
@@ -140,7 +140,7 @@ if has_format rpm; then
     --url "https://github.com/coder/coder-desktop-linux" \
     --maintainer "Coder Technologies Inc. <support@coder.com>" \
     --description "Coder Desktop Linux tray app and root VPN service" \
-    --depends "dotnet-runtime-8.0" \
+    --depends "dotnet-runtime-10.0" \
     --depends "libnotify" \
     --depends "libsecret" \
     --after-install "$SCRIPT_DIR/postinst.sh" \
