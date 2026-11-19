@@ -469,7 +469,8 @@ public partial class AgentViewModel : ObservableObject, IModelUpdateable<AgentVi
         {
             if (!app.External || !string.IsNullOrEmpty(app.Command)) continue;
 
-            if (!Uri.TryCreate(app.Url, UriKind.Absolute, out var appUri))
+            var url = workspaceAgent.ParentId is null ? app.Url : app.Url.Replace(SessionTokenLink.Placeholder, "");
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var appUri))
             {
                 _logger.LogWarning("Could not parse app URI '{Url}' for '{DisplayName}', app will not appear in list",
                     app.Url,
@@ -486,7 +487,8 @@ public partial class AgentViewModel : ObservableObject, IModelUpdateable<AgentVi
             // icon.
             _ = Uri.TryCreate(DashboardBaseUrl, app.Icon, out var iconUrl);
 
-            apps.Add(_agentAppViewModelFactory.Create(app.Id, app.DisplayName, appUri, iconUrl));
+            apps.Add(_agentAppViewModelFactory.Create(app.Id, app.DisplayName, appUri, iconUrl,
+                confirmBeforeOpening: !SessionTokenLink.IsKnownHandler(url)));
         }
 
         foreach (var displayApp in workspaceAgent.DisplayApps)
@@ -528,7 +530,7 @@ public partial class AgentViewModel : ObservableObject, IModelUpdateable<AgentVi
             // icon.
             _ = Uri.TryCreate(DashboardBaseUrl, icon, out var iconUrl);
 
-            apps.Add(_agentAppViewModelFactory.Create(id, displayName, appUri, iconUrl));
+            apps.Add(_agentAppViewModelFactory.Create(id, displayName, appUri, iconUrl, confirmBeforeOpening: false));
         }
 
         // Sort by name.

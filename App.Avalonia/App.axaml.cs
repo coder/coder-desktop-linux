@@ -83,6 +83,7 @@ public partial class App : Application
 
         // Settings and hostname metadata
         services.AddSingleton<ISettingsManager<CoderConnectSettings>, SettingsManager<CoderConnectSettings>>();
+        services.AddSingleton<ISettingsManager<AppLinkSettings>, SettingsManager<AppLinkSettings>>();
         services.AddSingleton<IHostnameSuffixGetter, HostnameSuffixGetter>();
 
         // View model factories

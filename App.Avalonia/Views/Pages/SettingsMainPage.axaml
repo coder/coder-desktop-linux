@@ -32,6 +32,19 @@
                 </StackPanel>
             </Border>
 
+            <Border BorderThickness="1"
+                    BorderBrush="#33000000"
+                    Padding="12">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="App link confirmations"
+                               FontWeight="SemiBold" />
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Ask again before opening app links you trusted." />
+                    <Button Content="Reset"
+                            Command="{CompiledBinding ResetTrustedAppLinksCommand}" />
+                </StackPanel>
+            </Border>
+
             <TextBlock Text="Coder Connect"
                        FontWeight="SemiBold"
                        Margin="0,20,0,0" />

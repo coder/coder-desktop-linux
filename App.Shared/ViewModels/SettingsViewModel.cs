@@ -1,6 +1,7 @@
 using Coder.Desktop.App.Models;
 using Coder.Desktop.App.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using System;
 
@@ -22,10 +23,13 @@ public partial class SettingsViewModel : ObservableObject
     private ISettingsManager<CoderConnectSettings> _connectSettingsManager;
     private CoderConnectSettings _connectSettings = new CoderConnectSettings();
     private IStartupManager _startupManager;
+    private readonly ISettingsManager<AppLinkSettings> _appLinkSettingsManager;
 
-    public SettingsViewModel(ILogger<SettingsViewModel> logger, ISettingsManager<CoderConnectSettings> settingsManager, IStartupManager startupManager)
+    public SettingsViewModel(ILogger<SettingsViewModel> logger, ISettingsManager<CoderConnectSettings> settingsManager, IStartupManager startupManager,
+        ISettingsManager<AppLinkSettings> appLinkSettingsManager)
     {
         _connectSettingsManager = settingsManager;
+        _appLinkSettingsManager = appLinkSettingsManager;
         _startupManager = startupManager;
         _logger = logger;
         _connectSettings = settingsManager.Read().GetAwaiter().GetResult();
@@ -76,6 +80,19 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError($"Error setting StartOnLogin in registry: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private async Task ResetTrustedAppLinks()
+    {
+        try
+        {
+            await _appLinkSettingsManager.Update(settings => settings.TrustedSchemes.Clear());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error resetting trusted app links: {ex.Message}");
         }
     }
 }

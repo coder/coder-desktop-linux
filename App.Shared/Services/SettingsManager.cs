@@ -48,6 +48,8 @@ public sealed class SettingsManager<T> : ISettingsManager<T> where T : ISettings
     private T? _cachedSettings;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    // Read and Write each take _gate, so updates need a lock of their own.
+    private readonly SemaphoreSlim _updateGate = new(1, 1);
     private static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(3);
 
     /// <param name="settingsFilePath">
@@ -133,6 +135,21 @@ public sealed class SettingsManager<T> : ISettingsManager<T> where T : ISettings
         finally
         {
             _gate.Release();
+        }
+    }
+
+    public async Task Update(Action<T> update, CancellationToken ct = default)
+    {
+        await _updateGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var settings = await Read(ct).ConfigureAwait(false);
+            update(settings);
+            await Write(settings, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _updateGate.Release();
         }
     }
 }

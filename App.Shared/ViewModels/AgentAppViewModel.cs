@@ -11,36 +11,43 @@ namespace Coder.Desktop.App.ViewModels;
 
 public interface IAgentAppViewModelFactory
 {
-    public AgentAppViewModel Create(Uuid id, string name, Uri appUri, Uri? iconUrl);
+    public AgentAppViewModel Create(Uuid id, string name, Uri appUri, Uri? iconUrl, bool confirmBeforeOpening);
 }
 
 public class AgentAppViewModelFactory(
     ILogger<AgentAppViewModel> childLogger,
     ICredentialManager credentialManager,
     ILauncherService launcherService,
-    IWindowService windowService)
+    IWindowService windowService,
+    ISettingsManager<AppLinkSettings> appLinkSettingsManager)
     : IAgentAppViewModelFactory
 {
-    public AgentAppViewModel Create(Uuid id, string name, Uri appUri, Uri? iconUrl)
+    public AgentAppViewModel Create(Uuid id, string name, Uri appUri, Uri? iconUrl, bool confirmBeforeOpening)
     {
-        return new AgentAppViewModel(childLogger, credentialManager, launcherService, windowService)
+        var cred = credentialManager.GetCachedCredentials();
+        return new AgentAppViewModel(childLogger, credentialManager, launcherService, windowService,
+            appLinkSettingsManager)
         {
             Id = id,
             Name = name,
             AppUri = appUri,
             IconUrl = iconUrl,
+            // OriginalString is the raw link; ToString() unescapes it.
+            BlockReason = cred.CoderUrl is null
+                ? null
+                : SessionTokenLink.BlockReason(appUri.OriginalString, cred.CoderUrl, cred.DashboardUrl),
+            ConfirmBeforeOpening = confirmBeforeOpening,
         };
     }
 }
 
 public partial class AgentAppViewModel : ObservableObject, IModelUpdateable<AgentAppViewModel>
 {
-    private const string SessionTokenUriVar = "$SESSION_TOKEN";
-
     private readonly ILogger<AgentAppViewModel> _logger;
     private readonly ICredentialManager _credentialManager;
     private readonly ILauncherService _launcherService;
     private readonly IWindowService _windowService;
+    private readonly ISettingsManager<AppLinkSettings> _appLinkSettingsManager;
 
     public required Uuid Id { get; init; }
 
@@ -48,9 +55,16 @@ public partial class AgentAppViewModel : ObservableObject, IModelUpdateable<Agen
     [NotifyPropertyChangedFor(nameof(Details))]
     private string _name = default!;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Details))]
-    private Uri _appUri = default!;
+    public required Uri AppUri { get; init; }
+
+    /// <summary>Set when the link needs a session token but isn't trusted with one.</summary>
+    public string? BlockReason { get; init; }
+
+    public bool ConfirmBeforeOpening { get; init; }
+
+    public bool CanOpen => BlockReason is null;
+
+    public double IconOpacity => CanOpen ? 1.0 : 0.4;
 
     [ObservableProperty]
     private Uri? _iconUrl = default!;
@@ -66,19 +80,22 @@ public partial class AgentAppViewModel : ObservableObject, IModelUpdateable<Agen
     [ObservableProperty]
     private bool _useFallbackIcon = true;
 
-    public string Details =>
-        (string.IsNullOrWhiteSpace(Name) ? "(no name)" : Name) + ":\n\n" + AppUri;
+    private string DisplayName => string.IsNullOrWhiteSpace(Name) ? "(no name)" : Name;
+
+    public string Details => DisplayName + ":\n\n" + (BlockReason ?? AppUri.ToString());
 
     public AgentAppViewModel(
         ILogger<AgentAppViewModel> logger,
         ICredentialManager credentialManager,
         ILauncherService launcherService,
-        IWindowService windowService)
+        IWindowService windowService,
+        ISettingsManager<AppLinkSettings> appLinkSettingsManager)
     {
         _logger = logger;
         _credentialManager = credentialManager;
         _launcherService = launcherService;
         _windowService = windowService;
+        _appLinkSettingsManager = appLinkSettingsManager;
 
         // Apply the icon URL to the icon image source when it is updated.
         IconImageSource = UpdateIcon();
@@ -91,15 +108,16 @@ public partial class AgentAppViewModel : ObservableObject, IModelUpdateable<Agen
 
     public bool TryApplyChanges(AgentAppViewModel obj)
     {
-        if (Id != obj.Id)
+        // Replace the item when the link changes. Uri equality ignores the
+        // fragment, which holds Gateway's params.
+        if (Id != obj.Id || AppUri.OriginalString != obj.AppUri.OriginalString || BlockReason != obj.BlockReason ||
+            ConfirmBeforeOpening != obj.ConfirmBeforeOpening)
             return false;
 
         // To avoid spurious UI updates which cause flashing, don't actually
         // write to values unless they've changed.
         if (Name != obj.Name)
             Name = obj.Name;
-        if (AppUri != obj.AppUri)
-            AppUri = obj.AppUri;
         if (IconUrl != obj.IconUrl)
         {
             UseFallbackIcon = true;
@@ -145,16 +163,42 @@ public partial class AgentAppViewModel : ObservableObject, IModelUpdateable<Agen
             // token var replacement on those URLs.
             if (uri.Scheme is not "http" and not "https")
             {
+                // Recheck, since credentials may have loaded after this app was created.
                 var cred = _credentialManager.GetCachedCredentials();
-                if (cred.State is CredentialState.Valid && cred.ApiToken is not null)
-                    uri = new Uri(uri.ToString().Replace(SessionTokenUriVar, cred.ApiToken));
+                if (cred is { State: CredentialState.Valid, CoderUrl: not null, ApiToken: not null })
+                {
+                    var reason = SessionTokenLink.BlockReason(uri.OriginalString, cred.CoderUrl, cred.DashboardUrl);
+                    if (reason is not null) throw new Exception(reason);
+                    uri = new Uri(uri.OriginalString.Replace(SessionTokenLink.Placeholder, cred.ApiToken));
+                }
             }
 
-            if (uri.ToString().Contains(SessionTokenUriVar))
+            if (uri.ToString().Contains(SessionTokenLink.Placeholder))
                 throw new Exception(
-                    $"URI contains {SessionTokenUriVar} variable but could not be replaced (http and https URLs cannot contain {SessionTokenUriVar})");
+                    $"URI contains {SessionTokenLink.Placeholder} variable but could not be replaced (http and https URLs cannot contain {SessionTokenLink.Placeholder})");
+
+            var scheme = uri.Scheme.ToLowerInvariant();
+            if (!ConfirmBeforeOpening || (await _appLinkSettingsManager.Read()).TrustedSchemes.Contains(scheme))
+            {
+                await _launcherService.LaunchUriAsync(uri);
+                return;
+            }
+
+            // Await the choice so this command, which doesn't run concurrently,
+            // covers the whole flow and can't stack a second prompt.
+            var (open, dontAskAgain) = await _windowService.ConfirmOpenAppAsync(DisplayName, scheme);
+            if (!open) return;
 
             await _launcherService.LaunchUriAsync(uri);
+            if (!dontAskAgain) return;
+            try
+            {
+                await _appLinkSettingsManager.Update(settings => settings.TrustedSchemes.Add(scheme));
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning(e, "could not save trusted app link scheme");
+            }
         }
         catch (Exception e)
         {

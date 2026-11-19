@@ -20,6 +20,8 @@ public class WorkspaceAgent
 
     public string ExpandedDirectory { get; set; } = "";
 
+    public Uuid? ParentId { get; set; }
+
     public WorkspaceApp[] Apps { get; set; } = [];
 
     // This isn't an enum to avoid future display apps breaking the desktop

@@ -264,8 +264,11 @@
                                         <DataTemplate x:DataType="vm:AgentAppViewModel">
                                             <Button Classes="action-icon"
                                                     Command="{CompiledBinding OpenAppCommand}"
-                                                    ToolTip.Tip="{CompiledBinding Name}">
-                                                <controls:AgentAppIcon IconUrl="{CompiledBinding IconUrl}" />
+                                                    IsEnabled="{CompiledBinding CanOpen}"
+                                                    ToolTip.Tip="{CompiledBinding Details}"
+                                                    ToolTip.ShowOnDisabled="True">
+                                                <controls:AgentAppIcon IconUrl="{CompiledBinding IconUrl}"
+                                                                       Opacity="{CompiledBinding IconOpacity}" />
                                             </Button>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
