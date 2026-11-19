@@ -9,4 +9,5 @@ public interface IWindowService
     void ShowSettingsWindow();
     void ShowFileSyncListWindow();
     void ShowMessageWindow(string title, string message, string windowTitle);
+    Task<(bool Open, bool DontAskAgain)> ConfirmOpenAppAsync(string appName, string scheme);
 }

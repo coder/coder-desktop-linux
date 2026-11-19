@@ -82,6 +82,13 @@ public sealed class AvaloniaWindowService(IServiceProvider services) : IWindowSe
         ShowWindow(window, useOwner: false);
     }
 
+    public Task<(bool Open, bool DontAskAgain)> ConfirmOpenAppAsync(string appName, string scheme)
+    {
+        var window = new ConfirmOpenAppWindow(appName, scheme);
+        ShowWindow(window, useOwner: false);
+        return window.Result;
+    }
+
     private static void ShowWindow(Window window, bool useOwner)
     {
         var desktop = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;

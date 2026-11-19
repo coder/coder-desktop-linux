@@ -7,7 +7,8 @@ public class ProcessLauncherService : ILauncherService
 {
     public Task LaunchUriAsync(Uri uri)
     {
-        Process.Start(new ProcessStartInfo(uri.ToString())
+        // OriginalString is the link that was checked; ToString() unescapes it.
+        Process.Start(new ProcessStartInfo(uri.OriginalString)
         {
             UseShellExecute = true
         });
